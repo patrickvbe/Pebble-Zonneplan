@@ -1,6 +1,8 @@
 // Require the keys' numeric values.
 var keys = require('message_keys');
 
+const STROOM_TARIEF_COUNT = 24;
+
 Pebble.addEventListener('ready', function() {
   console.log('PebbleKit JS ready.');
 
@@ -17,11 +19,15 @@ function fetchStroom(dateint) {
   req.onload = function () {
     if (req.readyState === 4) {
       if (req.status === 200) {
-        console.log(req.responseText);
+        // console.log(req.responseText);
         var response = JSON.parse(req.responseText);
-        var p1 = response[0][1];
-        console.log(p1);
-        Pebble.sendAppMessage({Stroom: Math.round(p1*100000)});
+        const buffer = new ArrayBuffer(STROOM_TARIEF_COUNT * 4);
+        const data = new Uint32Array(buffer);
+        for ( pointidx = 0; pointidx < STROOM_TARIEF_COUNT; pointidx++) {
+          if ( pointidx < response.length ) data[pointidx] = (Math.round(response[pointidx][1]*100000));
+          else data[pointidx] = 0;
+        }
+        Pebble.sendAppMessage({Stroom: Array.from(new Uint8Array(buffer))});
       } else {
         console.log('Error');
       }
