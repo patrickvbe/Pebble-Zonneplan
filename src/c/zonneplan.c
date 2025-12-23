@@ -1,7 +1,11 @@
 #include <pebble.h>
 
+#define MAX(x, y) (((x) > (y)) ? (x) : (y))
+#define MIN(x, y) (((x) < (y)) ? (x) : (y))
+
 static Window *s_window;
 static TextLayer *s_text_layer;
+static Layer *s_graph_layer;
 static bool s_js_ready;
 
 #define TEXTBUF_SIZE 16
@@ -68,7 +72,32 @@ static void inbox_received_handler(DictionaryIterator *iter, void *context) {
     memcpy(s_stroom_tarief, tuple->value->data, sizeof(s_stroom_tarief));
     snprintf(s_textbuffer, TEXTBUF_SIZE, "%ld ct", s_stroom_tarief[1]);
     text_layer_set_text(s_text_layer, s_textbuffer);
+    layer_mark_dirty(s_graph_layer);
     return;
+  }
+}
+
+static void graph_update_proc(Layer *layer, GContext *ctx) {
+  GRect bounds = layer_get_bounds(layer);
+  graphics_context_set_fill_color(ctx, GColorBlack);
+  graphics_fill_rect(ctx, bounds, 0, GCornerNone);
+  graphics_context_set_fill_color(ctx, GColorGreen);
+  const int16_t bar_width = bounds.size.w / STROOM_TARIEF_COUNT;
+  int32_t tar_min = s_stroom_tarief[0], tar_max = s_stroom_tarief[0];
+  for ( int idx=1; idx < STROOM_TARIEF_COUNT; idx++ ) {
+    tar_min = MIN(tar_min, s_stroom_tarief[idx]);
+    tar_max = MAX(tar_max, s_stroom_tarief[idx]);
+  }
+  const int16_t min_bar_y = bounds.origin.y + 10;
+  const int16_t max_bar_size = bounds.size.h - 20;
+  const int32_t tar_per_pixel = (tar_max - tar_min) / max_bar_size;
+  GRect rect = GRect(bounds.origin.x, 0, bar_width - 1, 0);
+  for ( int idx=1; idx < STROOM_TARIEF_COUNT; idx++ ) {
+    const int16_t bar_height = (s_stroom_tarief[idx]-tar_min) / tar_per_pixel;
+    rect.origin.y = min_bar_y + max_bar_size - bar_height;
+    rect.size.h = bounds.size.h - rect.origin.y;
+    graphics_fill_rect(ctx, rect, 1, GCornersTop);
+    rect.origin.x += bar_width;
   }
 }
 
@@ -81,6 +110,10 @@ static void prv_click_config_provider(void *context) {
 static void prv_window_load(Window *window) {
   Layer *window_layer = window_get_root_layer(window);
   GRect bounds = layer_get_bounds(window_layer);
+
+  s_graph_layer = layer_create(bounds);
+  layer_set_update_proc(s_graph_layer, graph_update_proc);
+  layer_add_child(window_layer, s_graph_layer);
 
   s_text_layer = text_layer_create(GRect(0, 72, bounds.size.w, 20));
   text_layer_set_text(s_text_layer, "Press a button");
@@ -99,6 +132,7 @@ static void prv_window_load(Window *window) {
 
 static void prv_window_unload(Window *window) {
   text_layer_destroy(s_text_layer);
+  layer_destroy(s_graph_layer);
 }
 
 static void prv_init(void) {
