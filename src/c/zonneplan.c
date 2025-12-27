@@ -2,28 +2,50 @@
 
 #define MAX(x, y) (((x) > (y)) ? (x) : (y))
 #define MIN(x, y) (((x) < (y)) ? (x) : (y))
+#define INT_TO_FLOAT(n) n / 1000, n % 1000
 
 static Window *s_window;
 static TextLayer *s_text_layer;
 static Layer *s_graph_layer;
 static bool s_js_ready;
 
-#define TEXTBUF_SIZE 16
+#define TOP_AREA 50
+#define TEXTBUF_SIZE 100
 static char s_textbuffer[TEXTBUF_SIZE];
 
-#define STROOM_TARIEF_COUNT 24
+// We get two days of data in the buffer.
+#define STROOM_TARIEF_COUNT 48
+#define STROOM_PER_SCREEN 24
 int32_t s_stroom_tarief[STROOM_TARIEF_COUNT];
+int s_in_buf_dag_1=0, s_in_buf_dag2=0;
+int32_t s_tar_min=0, s_tar_max=0, s_display_min=0;
 
 // App sync
 // static AppSync s_sync;
 // static uint8_t s_sync_buffer[64];
+int s_ymd_today = 0, s_ymd_tomorrow = 0;
+int s_hour_now = 0;
+
+int tm_to_int(struct tm *t) {
+  return (t->tm_year+1900)*10000 + (t->tm_mon+1)*100 + t->tm_mday;
+}
+
+static void update_time() {
+  time_t now = time(NULL);
+  struct tm *t = localtime(&now);
+  s_ymd_today = tm_to_int(t);
+  s_hour_now = t->tm_hour;
+  now +=  SECONDS_PER_DAY;
+  t = localtime(&now);
+  s_ymd_tomorrow = tm_to_int(t);
+}
 
 static void request_stroom() {
+  update_time();
   DictionaryIterator *out_iter;
   AppMessageResult result = app_message_outbox_begin(&out_iter);
   if(result == APP_MSG_OK) {
-    int value = 20251218;
-    dict_write_int(out_iter, MESSAGE_KEY_RequestData, &value, sizeof(int), true);
+    dict_write_int(out_iter, MESSAGE_KEY_RequestData, &s_ymd_today, sizeof(int), true);
     result = app_message_outbox_send();
     if(result != APP_MSG_OK) {
       APP_LOG(APP_LOG_LEVEL_ERROR, "Error sending the outbox: %d", (int)result);
@@ -70,7 +92,14 @@ static void inbox_received_handler(DictionaryIterator *iter, void *context) {
   if(tuple) {
     APP_LOG(APP_LOG_LEVEL_DEBUG, "Stroom received");
     memcpy(s_stroom_tarief, tuple->value->data, sizeof(s_stroom_tarief));
-    snprintf(s_textbuffer, TEXTBUF_SIZE, "%ld ct", s_stroom_tarief[1]);
+    s_tar_min = s_stroom_tarief[0];
+    s_tar_max = s_stroom_tarief[0];
+    for ( int idx=1; idx < STROOM_TARIEF_COUNT; idx++ ) {
+      s_tar_min = MIN(s_tar_min, s_stroom_tarief[idx]);
+      s_tar_max = MAX(s_tar_max, s_stroom_tarief[idx]);
+    }
+    s_display_min = s_tar_min > 0 ? 0 : s_tar_min;
+    snprintf(s_textbuffer, TEXTBUF_SIZE, "Min: %ld,%03ld ct\nMax: %ld,%03ld ct\nNu: %ld,%03ld", INT_TO_FLOAT(s_tar_min), INT_TO_FLOAT(s_tar_max), INT_TO_FLOAT(s_stroom_tarief[s_hour_now]));
     text_layer_set_text(s_text_layer, s_textbuffer);
     layer_mark_dirty(s_graph_layer);
     return;
@@ -82,23 +111,32 @@ static void graph_update_proc(Layer *layer, GContext *ctx) {
   graphics_context_set_fill_color(ctx, GColorBlack);
   graphics_fill_rect(ctx, bounds, 0, GCornerNone);
   graphics_context_set_fill_color(ctx, GColorGreen);
-  const int16_t bar_width = bounds.size.w / STROOM_TARIEF_COUNT;
-  int32_t tar_min = s_stroom_tarief[0], tar_max = s_stroom_tarief[0];
-  for ( int idx=1; idx < STROOM_TARIEF_COUNT; idx++ ) {
-    tar_min = MIN(tar_min, s_stroom_tarief[idx]);
-    tar_max = MAX(tar_max, s_stroom_tarief[idx]);
-  }
-  const int16_t min_bar_y = bounds.origin.y + 10;
-  const int16_t max_bar_size = bounds.size.h - 20;
-  const int32_t tar_per_pixel = (tar_max - tar_min) / max_bar_size;
+  const int16_t bar_width = bounds.size.w / STROOM_PER_SCREEN;
+  const int16_t min_bar_y = bounds.origin.y + TOP_AREA;
+  const int16_t max_bar_size = bounds.size.h - TOP_AREA;
+  const int32_t tar_per_pixel = (s_tar_max - s_display_min) / max_bar_size;
+  int hour = 0;
   GRect rect = GRect(bounds.origin.x, 0, bar_width - 1, 0);
-  for ( int idx=1; idx < STROOM_TARIEF_COUNT; idx++ ) {
-    const int16_t bar_height = (s_stroom_tarief[idx]-tar_min) / tar_per_pixel;
+  for ( int idx=0; idx < STROOM_PER_SCREEN; idx++ ) {
+    if ( hour < s_hour_now ) {
+      graphics_context_set_fill_color(ctx, GColorDarkGreen);
+    } else if ( hour == s_hour_now ) {
+      graphics_context_set_fill_color(ctx, GColorGreen);
+    } else {
+      graphics_context_set_fill_color(ctx, GColorMayGreen);
+    }
+    hour++;
+    const int16_t bar_height = (s_stroom_tarief[idx]-s_display_min) / tar_per_pixel;
     rect.origin.y = min_bar_y + max_bar_size - bar_height;
     rect.size.h = bounds.size.h - rect.origin.y;
     graphics_fill_rect(ctx, rect, 1, GCornersTop);
     rect.origin.x += bar_width;
   }
+  // for ( int idx=1; idx < 4; idx++ ) {
+  //   graphics_context_set_stroke_color(ctx, GColorBlue);
+  //   const int16_t x = bounds.origin.x + bar_width * 6 * idx - 1;
+  //   graphics_draw_line(ctx, GPoint(x, bounds.origin.y), GPoint(x,bounds.size.h));
+  // }
 }
 
 static void prv_click_config_provider(void *context) {
@@ -115,9 +153,11 @@ static void prv_window_load(Window *window) {
   layer_set_update_proc(s_graph_layer, graph_update_proc);
   layer_add_child(window_layer, s_graph_layer);
 
-  s_text_layer = text_layer_create(GRect(0, 72, bounds.size.w, 20));
+  s_text_layer = text_layer_create(GRect(0, 0, bounds.size.w, TOP_AREA));
+  text_layer_set_background_color(s_text_layer, GColorBlack);
+  text_layer_set_text_color(s_text_layer, GColorWhite);
   text_layer_set_text(s_text_layer, "Press a button");
-  text_layer_set_text_alignment(s_text_layer, GTextAlignmentCenter);
+  text_layer_set_text_alignment(s_text_layer, GTextAlignmentLeft);
   layer_add_child(window_layer, text_layer_get_layer(s_text_layer));
 
   // Tuplet initial_values[] = {
