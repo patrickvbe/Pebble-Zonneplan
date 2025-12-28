@@ -1,5 +1,7 @@
 #include <pebble.h>
 
+#include <string.h>
+
 #define MAX(x, y) (((x) > (y)) ? (x) : (y))
 #define MIN(x, y) (((x) < (y)) ? (x) : (y))
 #define INT_TO_FLOAT(n) n / 1000, n % 1000
@@ -14,11 +16,12 @@ static bool s_js_ready;
 static char s_textbuffer[TEXTBUF_SIZE];
 
 // We get two days of data in the buffer.
-#define STROOM_TARIEF_COUNT 48
-#define STROOM_PER_SCREEN 24
-int32_t s_stroom_tarief[STROOM_TARIEF_COUNT];
-int s_in_buf_dag_1=0, s_in_buf_dag2=0;
+#define STROOM_BUF_SIZE 24
+int32_t s_stroom_today[STROOM_BUF_SIZE];
+int32_t s_stroom_tomorrow[STROOM_BUF_SIZE];
+int s_in_buf_today=0, s_in_buf_tomorrow=0;
 int32_t s_tar_min=0, s_tar_max=0, s_display_min=0;
+bool display_today = true; // false = tomorrow.
 
 // App sync
 // static AppSync s_sync;
@@ -40,12 +43,11 @@ static void update_time() {
   s_ymd_tomorrow = tm_to_int(t);
 }
 
-static void request_stroom() {
-  update_time();
+void request_stroom(int date) {
   DictionaryIterator *out_iter;
   AppMessageResult result = app_message_outbox_begin(&out_iter);
   if(result == APP_MSG_OK) {
-    dict_write_int(out_iter, MESSAGE_KEY_RequestData, &s_ymd_today, sizeof(int), true);
+    dict_write_int(out_iter, MESSAGE_KEY_RequestData, &date, sizeof(int), true);
     result = app_message_outbox_send();
     if(result != APP_MSG_OK) {
       APP_LOG(APP_LOG_LEVEL_ERROR, "Error sending the outbox: %d", (int)result);
@@ -55,6 +57,110 @@ static void request_stroom() {
     APP_LOG(APP_LOG_LEVEL_ERROR, "Error preparing the outbox: %d", (int)result);
   }
 }
+
+void update_mm(int32_t* buf) {
+  for ( int idx=0; idx < STROOM_BUF_SIZE; idx++ ) {
+    s_tar_min = MIN(s_tar_min, buf[idx]);
+    s_tar_max = MAX(s_tar_max, buf[idx]);
+  }
+}
+
+void data_updated() {
+  // Calculate statistics over both days.
+  s_tar_min = s_in_buf_today != 0 ? s_stroom_today[0] : s_in_buf_tomorrow != 0 ? s_stroom_tomorrow[0] : 0;
+  s_tar_max = s_tar_min;
+  if ( s_in_buf_today    != 0 ) update_mm(s_stroom_today);
+  if ( s_in_buf_tomorrow != 0 ) update_mm(s_stroom_tomorrow);
+  s_display_min = s_tar_min > 0 ? 0 : s_tar_min;
+  layer_mark_dirty(s_graph_layer);
+  
+  // Display textual information.
+  s_textbuffer[0] = 0;
+  if ( s_in_buf_today == 0 && s_in_buf_tomorrow == 0 ) {
+    snprintf(s_textbuffer, TEXTBUF_SIZE, "Geen gegevens");
+  } else {
+    snprintf(s_textbuffer, TEXTBUF_SIZE, "%d-%d-%d %d:00: ", s_ymd_today % 100, (s_ymd_today/100) % 100, s_ymd_today / 10000, s_hour_now);
+    int buflen = strlen(s_textbuffer);
+    int rest_size = TEXTBUF_SIZE - buflen;
+    if ( s_in_buf_today == 0 ) {
+      snprintf(s_textbuffer + buflen, rest_size, "Geen gegevens");
+    } else {
+      snprintf(s_textbuffer + buflen, rest_size, "%ld,%03ld", INT_TO_FLOAT(s_stroom_today[s_hour_now]));
+    }
+    buflen = strlen(s_textbuffer);
+    rest_size = TEXTBUF_SIZE - buflen;
+    snprintf(s_textbuffer + buflen, rest_size, "\nMin: %ld,%03ld ct\nMax: %ld,%03ld ct", INT_TO_FLOAT(s_tar_min), INT_TO_FLOAT(s_tar_max));
+  }
+  text_layer_set_text(s_text_layer, s_textbuffer);
+}
+
+void synchronize_data() {
+  update_time();
+
+  // If we went to the next day, we can take-over the data of tomorrow we already got.
+  if ( s_in_buf_tomorrow == s_ymd_today )
+  {
+    s_in_buf_today = s_in_buf_tomorrow;
+    s_in_buf_tomorrow = 0;
+    memcpy(s_stroom_today, s_stroom_tomorrow, sizeof(s_stroom_today));
+    data_updated();
+  }
+  if ( s_in_buf_today != s_ymd_today ) {
+    request_stroom(s_ymd_today);
+  } else if ( s_in_buf_tomorrow != s_ymd_tomorrow ) {
+    request_stroom(s_ymd_tomorrow);
+  }
+}
+
+void update_stroom_received(Tuple* tuple) {
+  APP_LOG(APP_LOG_LEVEL_DEBUG, "Stroom received");
+  int32_t* pbuffer = (int32_t*)tuple->value->data;
+  int date = (int)pbuffer[0];
+  //int32_t belasting = pbuffer[1];
+  int count = (int)pbuffer[2];
+  APP_LOG(APP_LOG_LEVEL_DEBUG, "Received data for %d, %d items.", date, count);
+  
+  // See which day / part of the buffer got the update
+  int32_t* targetbuf = NULL;
+  int* target_ymd = NULL;
+  if ( date == s_ymd_today ) {
+    target_ymd = &s_in_buf_today;
+    targetbuf = s_stroom_today;
+  } else if ( date == s_ymd_tomorrow ) {
+    target_ymd = &s_in_buf_tomorrow;
+    targetbuf = s_stroom_tomorrow;
+  } else return;
+
+  // Process the update
+  if ( count == STROOM_BUF_SIZE ) {
+    *target_ymd = date;
+    memcpy(targetbuf, &pbuffer[3], sizeof(s_stroom_today));
+    if ( date == s_ymd_today ) synchronize_data(); // We can already get tomorrow, if needed.
+  } else {
+    *target_ymd = 0;
+  }
+
+  data_updated();
+}
+
+static void inbox_received_handler(DictionaryIterator *iter, void *context) {
+  Tuple* tp = dict_read_first(iter);
+  APP_LOG(APP_LOG_LEVEL_DEBUG, "Inbox received %ld", tp->key);
+  Tuple *tuple = dict_find(iter, MESSAGE_KEY_JSReady);
+  if(tuple) {
+    // PebbleKit JS is ready! Safe to send messages
+    APP_LOG(APP_LOG_LEVEL_DEBUG, "JSReady received");
+    s_js_ready = true;
+    synchronize_data();
+    return;
+  }
+  tuple = dict_find(iter, MESSAGE_KEY_Stroom);
+  if(tuple) {
+    update_stroom_received(tuple);
+    return;
+  }
+}
+
 
 // static void sync_tuple_changed_callback(const uint32_t key, const Tuple* new_tuple, const Tuple* old_tuple, void* context) {
 //   APP_LOG(APP_LOG_LEVEL_DEBUG, "Changed callback %ld", key);
@@ -66,8 +172,8 @@ static void request_stroom() {
 // }
 
 static void prv_select_click_handler(ClickRecognizerRef recognizer, void *context) {
-  text_layer_set_text(s_text_layer, "Select");
-  request_stroom();
+  display_today = !display_today;
+  layer_mark_dirty(s_graph_layer);
 }
 
 static void prv_up_click_handler(ClickRecognizerRef recognizer, void *context) {
@@ -78,55 +184,29 @@ static void prv_down_click_handler(ClickRecognizerRef recognizer, void *context)
   text_layer_set_text(s_text_layer, "Down");
 }
 
-static void inbox_received_handler(DictionaryIterator *iter, void *context) {
-  Tuple* tp = dict_read_first(iter);
-  APP_LOG(APP_LOG_LEVEL_DEBUG, "Inbox received %ld", tp->key);
-  Tuple *tuple = dict_find(iter, MESSAGE_KEY_JSReady);
-  if(tuple) {
-    // PebbleKit JS is ready! Safe to send messages
-    APP_LOG(APP_LOG_LEVEL_DEBUG, "JSReady received");
-    s_js_ready = true;
-    return;
-  }
-  tuple = dict_find(iter, MESSAGE_KEY_Stroom);
-  if(tuple) {
-    APP_LOG(APP_LOG_LEVEL_DEBUG, "Stroom received");
-    memcpy(s_stroom_tarief, tuple->value->data, sizeof(s_stroom_tarief));
-    s_tar_min = s_stroom_tarief[0];
-    s_tar_max = s_stroom_tarief[0];
-    for ( int idx=1; idx < STROOM_TARIEF_COUNT; idx++ ) {
-      s_tar_min = MIN(s_tar_min, s_stroom_tarief[idx]);
-      s_tar_max = MAX(s_tar_max, s_stroom_tarief[idx]);
-    }
-    s_display_min = s_tar_min > 0 ? 0 : s_tar_min;
-    snprintf(s_textbuffer, TEXTBUF_SIZE, "Min: %ld,%03ld ct\nMax: %ld,%03ld ct\nNu: %ld,%03ld", INT_TO_FLOAT(s_tar_min), INT_TO_FLOAT(s_tar_max), INT_TO_FLOAT(s_stroom_tarief[s_hour_now]));
-    text_layer_set_text(s_text_layer, s_textbuffer);
-    layer_mark_dirty(s_graph_layer);
-    return;
-  }
-}
-
 static void graph_update_proc(Layer *layer, GContext *ctx) {
   GRect bounds = layer_get_bounds(layer);
   graphics_context_set_fill_color(ctx, GColorBlack);
   graphics_fill_rect(ctx, bounds, 0, GCornerNone);
-  graphics_context_set_fill_color(ctx, GColorGreen);
-  const int16_t bar_width = bounds.size.w / STROOM_PER_SCREEN;
+  if ( (display_today && s_in_buf_today != s_ymd_today) || (!display_today && s_in_buf_tomorrow != s_ymd_tomorrow) ) return;
+
+  const int16_t bar_width = bounds.size.w / STROOM_BUF_SIZE;
   const int16_t min_bar_y = bounds.origin.y + TOP_AREA;
   const int16_t max_bar_size = bounds.size.h - TOP_AREA;
   const int32_t tar_per_pixel = (s_tar_max - s_display_min) / max_bar_size;
   int hour = 0;
   GRect rect = GRect(bounds.origin.x, 0, bar_width - 1, 0);
-  for ( int idx=0; idx < STROOM_PER_SCREEN; idx++ ) {
-    if ( hour < s_hour_now ) {
-      graphics_context_set_fill_color(ctx, GColorDarkGreen);
+  int32_t* data = display_today ? s_stroom_today : s_stroom_tomorrow;
+  for ( int idx=0; idx < STROOM_BUF_SIZE; idx++ ) {
+    if ( !display_today || hour > s_hour_now ) {
+      graphics_context_set_fill_color(ctx, GColorMayGreen);
     } else if ( hour == s_hour_now ) {
       graphics_context_set_fill_color(ctx, GColorGreen);
     } else {
-      graphics_context_set_fill_color(ctx, GColorMayGreen);
+      graphics_context_set_fill_color(ctx, GColorDarkGreen);
     }
     hour++;
-    const int16_t bar_height = (s_stroom_tarief[idx]-s_display_min) / tar_per_pixel;
+    const int16_t bar_height = (data[idx]-s_display_min) / tar_per_pixel;
     rect.origin.y = min_bar_y + max_bar_size - bar_height;
     rect.size.h = bounds.size.h - rect.origin.y;
     graphics_fill_rect(ctx, rect, 1, GCornersTop);

@@ -44,25 +44,31 @@ function fetchStroom(dateint) {
   req.open('GET', 'https://www.stroomperuur.nl/ajax/tarieven.php?leverancier=2&datum=' + datestr, true);
   req.onload = function () {
     if (req.readyState === 4) {
+      const buffer = new ArrayBuffer((STROOM_TARIEF_COUNT+3) * 4);
+      const data = new Uint32Array(buffer);
+      data[2] = 0;
       if (req.status === 200) {
-        //console.log(req.responseText);
-        var response = JSON.parse(req.responseText);
-        const buffer = new ArrayBuffer(STROOM_TARIEF_COUNT * 4);
-        const data = new Uint32Array(buffer);
-        if ( response.length >= 4 ) {
-          tarieven = response[0];
-          belasting = response[1];
-          gemiddeld = response[2];
-          inkoopvergoeding = response[3];
-          for ( pointidx = 0; pointidx < STROOM_TARIEF_COUNT; pointidx++) {
-            if ( pointidx < tarieven.length ) data[pointidx] = (Math.round((tarieven[pointidx]+inkoopvergoeding)*1.21*100000));
-            else data[pointidx] = 0;
+        try {
+          //console.log(req.responseText);
+          var response = JSON.parse(req.responseText);
+          if ( response.length >= 4 ) {
+            tarieven = response[0];
+            belasting = response[1];
+            gemiddeld = response[2];
+            inkoopvergoeding = response[3];
+            data[0] = dateint;
+            data[1] = belasting;
+            if ( tarieven.length > 0 && tarieven[0] != '' ) {
+              data[2] = STROOM_TARIEF_COUNT;
+              for ( pointidx = 0; pointidx < STROOM_TARIEF_COUNT; pointidx++) {
+                if ( pointidx < tarieven.length ) data[pointidx+3] = (Math.round((tarieven[pointidx]+inkoopvergoeding)*1.21*100000));
+                else data[pointidx] = 0;
+              }
+            }
           }
-          Pebble.sendAppMessage({Stroom: Array.from(new Uint8Array(buffer))});
-        }
-      } else {
-        console.log('Error');
+        } catch(error) {}
       }
+      Pebble.sendAppMessage({Stroom: Array.from(new Uint8Array(buffer))});
     }
   };
   req.send(null);
