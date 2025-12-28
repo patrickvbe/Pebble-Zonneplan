@@ -21,13 +21,14 @@ int32_t s_stroom_today[STROOM_BUF_SIZE];
 int32_t s_stroom_tomorrow[STROOM_BUF_SIZE];
 int s_in_buf_today=0, s_in_buf_tomorrow=0;
 int32_t s_tar_min=0, s_tar_max=0, s_display_min=0;
-bool display_today = true; // false = tomorrow.
+bool s_display_today = true; // false = tomorrow.
 
 // App sync
 // static AppSync s_sync;
 // static uint8_t s_sync_buffer[64];
 int s_ymd_today = 0, s_ymd_tomorrow = 0;
 int s_hour_now = 0;
+int s_highlight_hour = 0;
 
 int tm_to_int(struct tm *t) {
   return (t->tm_year+1900)*10000 + (t->tm_mon+1)*100 + t->tm_mday;
@@ -65,6 +66,47 @@ void update_mm(int32_t* buf) {
   }
 }
 
+bool has_valid_data_for_selection() {
+  return (s_display_today && s_in_buf_today == s_ymd_today) || (!s_display_today && s_in_buf_tomorrow == s_ymd_tomorrow);
+}
+
+void update_text() {
+  s_textbuffer[0] = 0;
+  if ( s_in_buf_today == 0 && s_in_buf_tomorrow == 0 ) {
+    snprintf(s_textbuffer, TEXTBUF_SIZE, "Geen gegevens");
+  } else {
+    int32_t* data = s_display_today ? s_stroom_today : s_stroom_tomorrow;
+    int  ymd = s_display_today ? s_ymd_today : s_ymd_tomorrow;
+    //snprintf(s_textbuffer, TEXTBUF_SIZE, "%d-%d-%d %d:00: ", ymd % 100, (ymd/100) % 100, ymd / 10000, s_highlight_hour);
+    snprintf(s_textbuffer, TEXTBUF_SIZE, "%d-%d %d:00: ", ymd % 100, (ymd/100) % 100, s_highlight_hour);
+    int buflen = strlen(s_textbuffer);
+    int rest_size = TEXTBUF_SIZE - buflen;
+    if ( !has_valid_data_for_selection() ) {
+      snprintf(s_textbuffer + buflen, rest_size, "Geen gegevens");
+    } else {
+      snprintf(s_textbuffer + buflen, rest_size, "%ld,%03ld", INT_TO_FLOAT(data[s_highlight_hour]));
+    }
+    buflen = strlen(s_textbuffer);
+    rest_size = TEXTBUF_SIZE - buflen;
+    snprintf(s_textbuffer + buflen, rest_size, "\nMin: %ld,%03ld\nMax: %ld,%03ld", INT_TO_FLOAT(s_tar_min), INT_TO_FLOAT(s_tar_max));
+  }
+  text_layer_set_text(s_text_layer, s_textbuffer);
+}
+
+void redraw() {
+  layer_mark_dirty(s_graph_layer);
+  update_text();
+}
+
+void set_display_today(bool value) {
+  if ( (s_display_today = value) ) {
+    s_highlight_hour = s_hour_now;
+  } else {
+    s_highlight_hour = 12;
+  }
+  redraw();
+}
+
 void data_updated() {
   // Calculate statistics over both days.
   s_tar_min = s_in_buf_today != 0 ? s_stroom_today[0] : s_in_buf_tomorrow != 0 ? s_stroom_tomorrow[0] : 0;
@@ -72,26 +114,7 @@ void data_updated() {
   if ( s_in_buf_today    != 0 ) update_mm(s_stroom_today);
   if ( s_in_buf_tomorrow != 0 ) update_mm(s_stroom_tomorrow);
   s_display_min = s_tar_min > 0 ? 0 : s_tar_min;
-  layer_mark_dirty(s_graph_layer);
-  
-  // Display textual information.
-  s_textbuffer[0] = 0;
-  if ( s_in_buf_today == 0 && s_in_buf_tomorrow == 0 ) {
-    snprintf(s_textbuffer, TEXTBUF_SIZE, "Geen gegevens");
-  } else {
-    snprintf(s_textbuffer, TEXTBUF_SIZE, "%d-%d-%d %d:00: ", s_ymd_today % 100, (s_ymd_today/100) % 100, s_ymd_today / 10000, s_hour_now);
-    int buflen = strlen(s_textbuffer);
-    int rest_size = TEXTBUF_SIZE - buflen;
-    if ( s_in_buf_today == 0 ) {
-      snprintf(s_textbuffer + buflen, rest_size, "Geen gegevens");
-    } else {
-      snprintf(s_textbuffer + buflen, rest_size, "%ld,%03ld", INT_TO_FLOAT(s_stroom_today[s_hour_now]));
-    }
-    buflen = strlen(s_textbuffer);
-    rest_size = TEXTBUF_SIZE - buflen;
-    snprintf(s_textbuffer + buflen, rest_size, "\nMin: %ld,%03ld ct\nMax: %ld,%03ld ct", INT_TO_FLOAT(s_tar_min), INT_TO_FLOAT(s_tar_max));
-  }
-  text_layer_set_text(s_text_layer, s_textbuffer);
+  set_display_today(true);
 }
 
 void synchronize_data() {
@@ -172,23 +195,40 @@ static void inbox_received_handler(DictionaryIterator *iter, void *context) {
 // }
 
 static void prv_select_click_handler(ClickRecognizerRef recognizer, void *context) {
-  display_today = !display_today;
-  layer_mark_dirty(s_graph_layer);
+  set_display_today(!s_display_today);
 }
 
 static void prv_up_click_handler(ClickRecognizerRef recognizer, void *context) {
-  text_layer_set_text(s_text_layer, "Up");
+  if ( ++s_highlight_hour > 23 ) {
+    if ( s_display_today ) {
+      s_display_today = false;
+      s_highlight_hour = 0;
+    } else {
+      s_highlight_hour--;
+      return;
+    }
+  }
+  redraw();
 }
 
 static void prv_down_click_handler(ClickRecognizerRef recognizer, void *context) {
-  text_layer_set_text(s_text_layer, "Down");
+  if ( --s_highlight_hour < 0 ) {
+    if ( !s_display_today ) {
+      s_display_today = true;
+      s_highlight_hour = 23;
+    } else {
+      s_highlight_hour++;
+      return;
+    }
+  }
+  redraw();
 }
 
 static void graph_update_proc(Layer *layer, GContext *ctx) {
   GRect bounds = layer_get_bounds(layer);
   graphics_context_set_fill_color(ctx, GColorBlack);
   graphics_fill_rect(ctx, bounds, 0, GCornerNone);
-  if ( (display_today && s_in_buf_today != s_ymd_today) || (!display_today && s_in_buf_tomorrow != s_ymd_tomorrow) ) return;
+  if ( !has_valid_data_for_selection() ) return;
 
   const int16_t bar_width = bounds.size.w / STROOM_BUF_SIZE;
   const int16_t min_bar_y = bounds.origin.y + TOP_AREA;
@@ -196,12 +236,12 @@ static void graph_update_proc(Layer *layer, GContext *ctx) {
   const int32_t tar_per_pixel = (s_tar_max - s_display_min) / max_bar_size;
   int hour = 0;
   GRect rect = GRect(bounds.origin.x, 0, bar_width - 1, 0);
-  int32_t* data = display_today ? s_stroom_today : s_stroom_tomorrow;
+  int32_t* data = s_display_today ? s_stroom_today : s_stroom_tomorrow;
   for ( int idx=0; idx < STROOM_BUF_SIZE; idx++ ) {
-    if ( !display_today || hour > s_hour_now ) {
-      graphics_context_set_fill_color(ctx, GColorMayGreen);
-    } else if ( hour == s_hour_now ) {
+    if ( hour == s_highlight_hour ) {
       graphics_context_set_fill_color(ctx, GColorGreen);
+    } else if ( !s_display_today || hour >= s_hour_now ) {
+      graphics_context_set_fill_color(ctx, GColorMayGreen);
     } else {
       graphics_context_set_fill_color(ctx, GColorDarkGreen);
     }
@@ -221,8 +261,8 @@ static void graph_update_proc(Layer *layer, GContext *ctx) {
 
 static void prv_click_config_provider(void *context) {
   window_single_click_subscribe(BUTTON_ID_SELECT, prv_select_click_handler);
-  window_single_click_subscribe(BUTTON_ID_UP, prv_up_click_handler);
-  window_single_click_subscribe(BUTTON_ID_DOWN, prv_down_click_handler);
+  window_single_repeating_click_subscribe(BUTTON_ID_UP, 100, prv_up_click_handler);
+  window_single_repeating_click_subscribe(BUTTON_ID_DOWN, 100, prv_down_click_handler);
 }
 
 static void prv_window_load(Window *window) {
