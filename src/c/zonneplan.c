@@ -23,6 +23,12 @@ int s_in_buf_today=0, s_in_buf_tomorrow=0;
 int32_t s_tar_min=0, s_tar_max=0, s_display_min=0;
 bool s_display_today = true; // false = tomorrow.
 
+// Persistency of data, so we don't have to communicate each time we start the app.
+#define STORAGE_KEY_IN_BUF_TODAY      0
+#define STORAGE_KEY_IN_BUF_TOMORROW   1
+#define STORAGE_KEY_STROOM_TODAY      2
+#define STORAGE_KEY_STROOM_TOMORROW   3
+
 // App sync
 // static AppSync s_sync;
 // static uint8_t s_sync_buffer[64];
@@ -280,6 +286,11 @@ static void prv_window_load(Window *window) {
   text_layer_set_text_alignment(s_text_layer, GTextAlignmentLeft);
   layer_add_child(window_layer, text_layer_get_layer(s_text_layer));
 
+  if ( s_in_buf_today != 0 || s_in_buf_tomorrow != 0 ) {
+    update_time();
+    data_updated();
+  }
+
   // Tuplet initial_values[] = {
   //   TupletInteger(MESSAGE_KEY_Stroom, (int32_t) 1),
   // };
@@ -296,6 +307,18 @@ static void prv_window_unload(Window *window) {
 }
 
 static void prv_init(void) {
+  // Get data from storage
+  if ( persist_exists(STORAGE_KEY_IN_BUF_TODAY) ) {
+    s_in_buf_today = persist_read_int(STORAGE_KEY_IN_BUF_TODAY);
+    persist_read_data(STORAGE_KEY_STROOM_TODAY, s_stroom_today, sizeof(s_stroom_today));
+    APP_LOG(APP_LOG_LEVEL_DEBUG, "Read today: %d", s_in_buf_today);
+  }
+  if ( persist_exists(STORAGE_KEY_IN_BUF_TOMORROW) ) {
+    s_in_buf_tomorrow = persist_read_int(STORAGE_KEY_IN_BUF_TOMORROW);
+    persist_read_data(STORAGE_KEY_STROOM_TOMORROW, s_stroom_tomorrow, sizeof(s_stroom_tomorrow));
+    APP_LOG(APP_LOG_LEVEL_DEBUG, "Read tomorrow: %d", s_in_buf_tomorrow);
+  }
+
   s_window = window_create();
   window_set_click_config_provider(s_window, prv_click_config_provider);
   window_set_window_handlers(s_window, (WindowHandlers) {
@@ -311,6 +334,18 @@ static void prv_init(void) {
 
 static void prv_deinit(void) {
   window_destroy(s_window);
+
+  // Store data before we exit.
+  if ( s_in_buf_today != 0 ) {
+    APP_LOG(APP_LOG_LEVEL_DEBUG, "Writing today");
+    persist_write_int(STORAGE_KEY_IN_BUF_TODAY, s_in_buf_today);
+    persist_write_data(STORAGE_KEY_STROOM_TODAY, s_stroom_today, sizeof(s_stroom_today));
+  }
+  if ( s_in_buf_tomorrow != 0 ) {
+    APP_LOG(APP_LOG_LEVEL_DEBUG, "Writing tomorrow");
+    persist_write_int(STORAGE_KEY_IN_BUF_TOMORROW, s_in_buf_tomorrow);
+    persist_write_data(STORAGE_KEY_STROOM_TOMORROW, s_stroom_tomorrow, sizeof(s_stroom_tomorrow));
+  }
 }
 
 int main(void) {
