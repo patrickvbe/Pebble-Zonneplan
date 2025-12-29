@@ -85,18 +85,15 @@ void update_text() {
   } else {
     int32_t* data = s_display_today ? s_stroom_today : s_stroom_tomorrow;
     int  ymd = s_display_today ? s_ymd_today : s_ymd_tomorrow;
-    //snprintf(s_textbuffer, TEXTBUF_SIZE, "%d-%d-%d %d:00: ", ymd % 100, (ymd/100) % 100, ymd / 10000, s_highlight_hour);
-    snprintf(s_textbuffer, TEXTBUF_SIZE, "%d-%d %d:00: ", ymd % 100, (ymd/100) % 100, s_highlight_hour);
+
+    snprintf(s_textbuffer, TEXTBUF_SIZE, "Min: %ld,%03ld\nMax: %ld,%03ld\n%d-%d %d:00: ", INT_TO_FLOAT(s_tar_min), INT_TO_FLOAT(s_tar_max), ymd % 100, (ymd/100) % 100, s_highlight_hour);
     int buflen = strlen(s_textbuffer);
     int rest_size = TEXTBUF_SIZE - buflen;
-    if ( !has_valid_data_for_selection() ) {
-      snprintf(s_textbuffer + buflen, rest_size, "Geen gegevens");
-    } else {
+    if ( has_valid_data_for_selection() ) {
       snprintf(s_textbuffer + buflen, rest_size, "%ld,%03ld", INT_TO_FLOAT(data[s_highlight_hour]));
+    } else {
+      snprintf(s_textbuffer + buflen, rest_size, "Geen gegevens");
     }
-    buflen = strlen(s_textbuffer);
-    rest_size = TEXTBUF_SIZE - buflen;
-    snprintf(s_textbuffer + buflen, rest_size, "\nMin: %ld,%03ld\nMax: %ld,%03ld", INT_TO_FLOAT(s_tar_min), INT_TO_FLOAT(s_tar_max));
   }
   text_layer_set_text(s_text_layer, s_textbuffer);
 }
@@ -246,11 +243,11 @@ static void graph_update_proc(Layer *layer, GContext *ctx) {
   int32_t* data = s_display_today ? s_stroom_today : s_stroom_tomorrow;
   for ( int hour=0; hour < STROOM_BUF_SIZE; hour++ ) {
     if ( hour == s_highlight_hour ) {
-      graphics_context_set_fill_color(ctx, GColorGreen);
+      graphics_context_set_fill_color(ctx, PBL_IF_COLOR_ELSE(GColorGreen, GColorWhite));
     } else if ( !s_display_today || hour >= s_hour_now ) {
-      graphics_context_set_fill_color(ctx, GColorMayGreen);
+      graphics_context_set_fill_color(ctx, PBL_IF_COLOR_ELSE(GColorMayGreen, GColorDarkGray));
     } else {
-      graphics_context_set_fill_color(ctx, GColorDarkGreen);
+      graphics_context_set_fill_color(ctx, PBL_IF_COLOR_ELSE(GColorDarkGreen, GColorDarkGray));
     }
     rect.size.h = MIN((data[hour]-s_display_min) / tar_per_pixel, bounds.size.h);
     rect.origin.y = bounds.size.h - rect.size.h;
@@ -283,7 +280,7 @@ static void prv_window_load(Window *window) {
   text_layer_set_background_color(s_text_layer, GColorBlack);
   text_layer_set_text_color(s_text_layer, GColorWhite);
   text_layer_set_text(s_text_layer, "Press a button");
-  text_layer_set_text_alignment(s_text_layer, GTextAlignmentLeft);
+  text_layer_set_text_alignment(s_text_layer, GTextAlignmentCenter);
   layer_add_child(window_layer, text_layer_get_layer(s_text_layer));
   
   s_bar_width = bounds.size.w / STROOM_BUF_SIZE;
