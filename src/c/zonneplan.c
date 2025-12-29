@@ -11,7 +11,7 @@ static TextLayer *s_text_layer;
 static Layer *s_graph_layer;
 static bool s_js_ready;
 
-#define TOP_AREA 50
+int s_top_area_height = 0;
 #define TEXTBUF_SIZE 100
 static char s_textbuffer[TEXTBUF_SIZE];
 
@@ -139,6 +139,9 @@ void synchronize_data() {
   } else if ( s_in_buf_tomorrow != s_ymd_tomorrow ) {
     request_stroom(s_ymd_tomorrow);
   }
+
+  // ToDo: Add timer to fire e.g. every minute (and increase interval) when today not in sync or after 13:00 and tomorrow not in sync.
+  // ToDo: Add timer to fire e.g. at 13:00 when tomorrow not in sync.
 }
 
 void update_stroom_received(Tuple* tuple) {
@@ -237,8 +240,8 @@ static void graph_update_proc(Layer *layer, GContext *ctx) {
   if ( !has_valid_data_for_selection() ) return;
 
   const int16_t bar_width = bounds.size.w / STROOM_BUF_SIZE;
-  const int16_t min_bar_y = bounds.origin.y + TOP_AREA;
-  const int16_t max_bar_size = bounds.size.h - TOP_AREA;
+  const int16_t min_bar_y = bounds.origin.y + s_top_area_height;
+  const int16_t max_bar_size = bounds.size.h - s_top_area_height;
   const int32_t tar_per_pixel = (s_tar_max - s_display_min) / max_bar_size;
   int hour = 0;
   GRect rect = GRect(bounds.origin.x, 0, bar_width - 1, 0);
@@ -279,7 +282,12 @@ static void prv_window_load(Window *window) {
   layer_set_update_proc(s_graph_layer, graph_update_proc);
   layer_add_child(window_layer, s_graph_layer);
 
-  s_text_layer = text_layer_create(GRect(0, 0, bounds.size.w, TOP_AREA));
+  GFont font = fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD);
+  GSize font_size = graphics_text_layout_get_content_size("1", font, bounds, GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft);
+  s_top_area_height = font_size.h * 3.5;
+
+  s_text_layer = text_layer_create(GRect(0, 0, bounds.size.w, s_top_area_height));
+  text_layer_set_font(s_text_layer, font);
   text_layer_set_background_color(s_text_layer, GColorBlack);
   text_layer_set_text_color(s_text_layer, GColorWhite);
   text_layer_set_text(s_text_layer, "Press a button");
