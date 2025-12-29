@@ -12,6 +12,8 @@ static Layer *s_graph_layer;
 static bool s_js_ready;
 
 int s_top_area_height = 0;
+int16_t s_bar_width = 0;
+int16_t s_graph_offset = 0;
 #define TEXTBUF_SIZE 100
 static char s_textbuffer[TEXTBUF_SIZE];
 
@@ -239,14 +241,10 @@ static void graph_update_proc(Layer *layer, GContext *ctx) {
   graphics_fill_rect(ctx, bounds, 0, GCornerNone);
   if ( !has_valid_data_for_selection() ) return;
 
-  const int16_t bar_width = bounds.size.w / STROOM_BUF_SIZE;
-  const int16_t min_bar_y = bounds.origin.y + s_top_area_height;
-  const int16_t max_bar_size = bounds.size.h - s_top_area_height;
-  const int32_t tar_per_pixel = (s_tar_max - s_display_min) / max_bar_size;
-  int hour = 0;
-  GRect rect = GRect(bounds.origin.x, 0, bar_width - 1, 0);
+  const int32_t tar_per_pixel = (s_tar_max - s_display_min) / bounds.size.h;
+  GRect rect = GRect(s_graph_offset, 0, s_bar_width - 1, 0);
   int32_t* data = s_display_today ? s_stroom_today : s_stroom_tomorrow;
-  for ( int idx=0; idx < STROOM_BUF_SIZE; idx++ ) {
+  for ( int hour=0; hour < STROOM_BUF_SIZE; hour++ ) {
     if ( hour == s_highlight_hour ) {
       graphics_context_set_fill_color(ctx, GColorGreen);
     } else if ( !s_display_today || hour >= s_hour_now ) {
@@ -254,16 +252,14 @@ static void graph_update_proc(Layer *layer, GContext *ctx) {
     } else {
       graphics_context_set_fill_color(ctx, GColorDarkGreen);
     }
-    hour++;
-    const int16_t bar_height = (data[idx]-s_display_min) / tar_per_pixel;
-    rect.origin.y = min_bar_y + max_bar_size - bar_height;
-    rect.size.h = bounds.size.h - rect.origin.y;
-    graphics_fill_rect(ctx, rect, 1, GCornersTop);
-    rect.origin.x += bar_width;
+    rect.size.h = MIN((data[hour]-s_display_min) / tar_per_pixel, bounds.size.h);
+    rect.origin.y = bounds.size.h - rect.size.h;
+    graphics_fill_rect(ctx, rect, 3, GCornersTop);
+    rect.origin.x += s_bar_width;
   }
   // for ( int idx=1; idx < 4; idx++ ) {
   //   graphics_context_set_stroke_color(ctx, GColorBlue);
-  //   const int16_t x = bounds.origin.x + bar_width * 6 * idx - 1;
+  //   const int16_t x = bounds.origin.x + s_bar_width * 6 * idx - 1;
   //   graphics_draw_line(ctx, GPoint(x, bounds.origin.y), GPoint(x,bounds.size.h));
   // }
 }
@@ -278,10 +274,6 @@ static void prv_window_load(Window *window) {
   Layer *window_layer = window_get_root_layer(window);
   GRect bounds = layer_get_bounds(window_layer);
 
-  s_graph_layer = layer_create(bounds);
-  layer_set_update_proc(s_graph_layer, graph_update_proc);
-  layer_add_child(window_layer, s_graph_layer);
-
   GFont font = fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD);
   GSize font_size = graphics_text_layout_get_content_size("1", font, bounds, GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft);
   s_top_area_height = font_size.h * 3.5;
@@ -293,6 +285,12 @@ static void prv_window_load(Window *window) {
   text_layer_set_text(s_text_layer, "Press a button");
   text_layer_set_text_alignment(s_text_layer, GTextAlignmentLeft);
   layer_add_child(window_layer, text_layer_get_layer(s_text_layer));
+  
+  s_bar_width = bounds.size.w / STROOM_BUF_SIZE;
+  s_graph_offset = (bounds.size.w - s_bar_width * STROOM_BUF_SIZE) / 2; // Center the graph area.
+  s_graph_layer = layer_create(GRect(0, s_top_area_height, bounds.size.w, bounds.size.h - s_top_area_height));
+  layer_set_update_proc(s_graph_layer, graph_update_proc);
+  layer_add_child(window_layer, s_graph_layer);
 
   if ( s_in_buf_today != 0 || s_in_buf_tomorrow != 0 ) {
     update_time();
