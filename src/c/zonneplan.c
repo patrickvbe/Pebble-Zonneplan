@@ -4,18 +4,24 @@
 
 #define MAX(x, y) (((x) > (y)) ? (x) : (y))
 #define MIN(x, y) (((x) < (y)) ? (x) : (y))
-#define INT_TO_FLOAT(n) n / 1000, n % 1000
+#define INT_TO_FLOAT2(n) (n) / 1000, ((n) % 1000)/10
+#define INT_TO_FLOAT3(n) (n) / 1000, (n) % 1000
+
+#define FILLER_SIZE 10
 
 static Window *s_window;
 static TextLayer *s_text_layer;
+static TextLayer *s_rate_layer;
 static Layer *s_graph_layer;
 static bool s_js_ready;
 
 int s_top_area_height = 0;
 int16_t s_bar_width = 0;
 int16_t s_graph_offset = 0;
-#define TEXTBUF_SIZE 100
+#define TEXTBUF_SIZE 30
 static char s_textbuffer[TEXTBUF_SIZE];
+#define RATE_BUF_SIZE 10
+static char s_rate_buffer[RATE_BUF_SIZE];
 
 // We get two days of data in the buffer.
 #define STROOM_BUF_SIZE 24
@@ -79,23 +85,21 @@ bool has_valid_data_for_selection() {
 }
 
 void update_text() {
-  s_textbuffer[0] = 0;
   if ( s_in_buf_today == 0 && s_in_buf_tomorrow == 0 ) {
     snprintf(s_textbuffer, TEXTBUF_SIZE, "Geen gegevens");
   } else {
     int32_t* data = s_display_today ? s_stroom_today : s_stroom_tomorrow;
     int  ymd = s_display_today ? s_ymd_today : s_ymd_tomorrow;
 
-    snprintf(s_textbuffer, TEXTBUF_SIZE, "Min: %ld,%03ld\nMax: %ld,%03ld\n%d-%d %d:00: ", INT_TO_FLOAT(s_tar_min), INT_TO_FLOAT(s_tar_max), ymd % 100, (ymd/100) % 100, s_highlight_hour);
-    int buflen = strlen(s_textbuffer);
-    int rest_size = TEXTBUF_SIZE - buflen;
+    snprintf(s_textbuffer, TEXTBUF_SIZE, "%ld.%02ld-%ld.%02ld\n%d-%d-%d %d:00", INT_TO_FLOAT2(s_tar_min), INT_TO_FLOAT2(s_tar_max), ymd % 100, (ymd/100) % 100, ymd / 10000, s_highlight_hour);
     if ( has_valid_data_for_selection() ) {
-      snprintf(s_textbuffer + buflen, rest_size, "%ld,%03ld", INT_TO_FLOAT(data[s_highlight_hour]));
+      snprintf(s_rate_buffer, RATE_BUF_SIZE, "%ld.%02ld", INT_TO_FLOAT2(data[s_highlight_hour]));
     } else {
-      snprintf(s_textbuffer + buflen, rest_size, "Geen gegevens");
+      snprintf(s_rate_buffer, RATE_BUF_SIZE, "-.-");
     }
   }
   text_layer_set_text(s_text_layer, s_textbuffer);
+  text_layer_set_text(s_rate_layer, s_rate_buffer);
 }
 
 void redraw() {
@@ -273,15 +277,26 @@ static void prv_window_load(Window *window) {
 
   GFont font = fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD);
   GSize font_size = graphics_text_layout_get_content_size("1", font, bounds, GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft);
-  s_top_area_height = font_size.h * 3.5;
+  s_top_area_height = font_size.h * 2;
 
   s_text_layer = text_layer_create(GRect(0, 0, bounds.size.w, s_top_area_height));
   text_layer_set_font(s_text_layer, font);
   text_layer_set_background_color(s_text_layer, GColorBlack);
   text_layer_set_text_color(s_text_layer, GColorWhite);
-  text_layer_set_text(s_text_layer, "Press a button");
   text_layer_set_text_alignment(s_text_layer, GTextAlignmentCenter);
   layer_add_child(window_layer, text_layer_get_layer(s_text_layer));
+  
+  font = fonts_get_system_font(FONT_KEY_LECO_42_NUMBERS);
+  font_size = graphics_text_layout_get_content_size("1", font, bounds, GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft);
+  
+  s_rate_layer = text_layer_create(GRect(0, s_top_area_height, bounds.size.w, font_size.h + FILLER_SIZE));
+  text_layer_set_font(s_rate_layer, font);
+  text_layer_set_background_color(s_rate_layer, GColorBlack);
+  text_layer_set_text_color(s_rate_layer, GColorWhite);
+  text_layer_set_text(s_rate_layer, "-.-");
+  text_layer_set_text_alignment(s_rate_layer, GTextAlignmentCenter);
+  layer_add_child(window_layer, text_layer_get_layer(s_rate_layer));
+  s_top_area_height += font_size.h + FILLER_SIZE;
   
   s_bar_width = bounds.size.w / STROOM_BUF_SIZE;
   s_graph_offset = (bounds.size.w - s_bar_width * STROOM_BUF_SIZE) / 2; // Center the graph area.
@@ -306,6 +321,7 @@ static void prv_window_load(Window *window) {
 
 static void prv_window_unload(Window *window) {
   text_layer_destroy(s_text_layer);
+  text_layer_destroy(s_rate_layer);
   layer_destroy(s_graph_layer);
 }
 
