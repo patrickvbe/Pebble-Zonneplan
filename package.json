@@ -2,9 +2,15 @@
   "name": "zonneplan",
   "author": "Patrick van Beem",
   "version": "1.0.0",
-  "keywords": ["zonneplan", "energy"],
+  "keywords": [
+    "zonneplan",
+    "energy"
+  ],
   "private": true,
-  "dependencies": {},
+  "dependencies": {
+    "pebble-clay": "^1.0.4"
+  },
+  "capabilities": [ "configurable" ],
   "pebble": {
     "displayName": "zonneplan",
     "uuid": "4d0c8b12-a273-4226-aed8-2575b17f943f",
@@ -15,8 +21,7 @@
       "basalt",
       "chalk",
       "diorite",
-      "emery",
-      "flint"
+      "emery"
     ],
     "watchapp": {
       "watchface": false
@@ -24,7 +29,15 @@
     "messageKeys": [
       "JSReady",
       "RequestData",
-      "Stroom"
+      "Stroom",
+      "BackgroundColor",
+      "TextColor",
+      "ForegroundColorPast",
+      "ForegroundColorFuture",
+      "HighlightColor",
+      "EnergieBelasting",
+      "BTW",
+      "InkoopVergoeding"
     ],
     "resources": {
       "media": []

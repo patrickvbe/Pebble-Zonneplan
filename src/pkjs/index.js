@@ -1,6 +1,13 @@
 // Require the keys' numeric values.
 var keys = require('message_keys');
 
+// Import the Clay package for the configuration page
+var Clay = require('pebble-clay');
+// Load our Clay configuration file
+var clayConfig = require('./config');
+// Initialize Clay
+var clay = new Clay(clayConfig);
+
 const STROOM_TARIEF_COUNT = 24;
 
 Pebble.addEventListener('ready', function() {
@@ -40,8 +47,8 @@ function fetchStroom(dateint) {
   //     }
   //   }
   // };
-  // https://www.stroomperuur.nl/ajax/tarieven.php?leverancier=2&datum=2025-12-27
-  req.open('GET', 'https://www.stroomperuur.nl/ajax/tarieven.php?leverancier=2&datum=' + datestr, true);
+  // https://www.stroomperuur.nl/ajax/tarieven.php?datum=2025-12-27
+  req.open('GET', 'https://www.stroomperuur.nl/ajax/tarieven.php?datum=' + datestr, true);
   req.onload = function () {
     if (req.readyState === 4) {
       const buffer = new ArrayBuffer((STROOM_TARIEF_COUNT+3) * 4);
@@ -61,7 +68,8 @@ function fetchStroom(dateint) {
             if ( tarieven.length > 0 && tarieven[0] != '' ) {
               data[2] = STROOM_TARIEF_COUNT;
               for ( pointidx = 0; pointidx < STROOM_TARIEF_COUNT; pointidx++) {
-                if ( pointidx < tarieven.length ) data[pointidx+3] = (Math.round((tarieven[pointidx]+inkoopvergoeding)*1.21*100000));
+                // if ( pointidx < tarieven.length ) data[pointidx+3] = (Math.round((tarieven[pointidx]+inkoopvergoeding)*1.21*100000));
+                if ( pointidx < tarieven.length ) data[pointidx+3] = tarieven[pointidx]*100000;
                 else data[pointidx] = 0;
               }
             }
