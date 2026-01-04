@@ -25,12 +25,13 @@ static char s_buffer_info[TEXTBUF_SIZE_INFO];
 static char s_buffer_tariff[TEXTBUF_SIZE_TARIFF];
 
 // We get two days of data in the buffer.
-#define STROOM_BUF_SIZE 24
-int32_t s_tariff_today[STROOM_BUF_SIZE];
-int32_t s_tariff_tomorrow[STROOM_BUF_SIZE];
+#define TARIFFS_PER_DAY 24
+int32_t s_tariff_today[TARIFFS_PER_DAY];
+int32_t s_tariff_tomorrow[TARIFFS_PER_DAY];
 int s_in_buf_today=0, s_in_buf_tomorrow=0;
 int32_t s_tar_min=0, s_tar_max=0, s_display_min=0;
 bool s_display_today = true; // false = tomorrow.
+int32_t s_tariff_calculated[TARIFFS_PER_DAY * 2];
 
 // Persistency of data, so we don't have to communicate each time we start the app.
 #define STORAGE_KEY_IN_BUF_TODAY      0
@@ -53,9 +54,6 @@ typedef struct Settings {
 Settings s_settings;
 bool s_settings_changed = false;  // So we know we should save it.
 
-// App sync
-// static AppSync s_sync;
-// static uint8_t s_sync_buffer[64];
 int s_ymd_today = 0, s_ymd_tomorrow = 0;
 int s_hour_now = 0;
 int s_highlight_hour = 0;
@@ -75,6 +73,7 @@ static void update_time() {
 }
 
 void request_tariffs(int date) {
+  APP_LOG(APP_LOG_LEVEL_DEBUG, "Request tariffs for %d.", date);
   DictionaryIterator *out_iter;
   AppMessageResult result = app_message_outbox_begin(&out_iter);
   if(result == APP_MSG_OK) {
@@ -89,13 +88,6 @@ void request_tariffs(int date) {
   }
 }
 
-void update_mm(int32_t* buf) {
-  for ( int idx=0; idx < STROOM_BUF_SIZE; idx++ ) {
-    s_tar_min = MIN(s_tar_min, buf[idx]);
-    s_tar_max = MAX(s_tar_max, buf[idx]);
-  }
-}
-
 bool has_valid_data_for_selection() {
   return (s_display_today && s_in_buf_today == s_ymd_today) || (!s_display_today && s_in_buf_tomorrow == s_ymd_tomorrow);
 }
@@ -104,22 +96,14 @@ int32_t multiply1000(int32_t a, int32_t b) {
   return ((int64_t)a * (int64_t)b) / 1000;
 }
 
-int32_t calc_rate(int rate) {
-  return multiply1000(rate, s_settings.BTW) + s_settings.InkoopVergoeding + s_settings.EnergieBelasting;
-}
-
 void update_text() {
   if ( s_in_buf_today == 0 && s_in_buf_tomorrow == 0 ) {
     snprintf(s_buffer_info, TEXTBUF_SIZE_INFO, "Geen gegevens");
   } else {
-    int32_t* data = s_display_today ? s_tariff_today : s_tariff_tomorrow;
     int ymd = s_display_today ? s_ymd_today : s_ymd_tomorrow;
-    int32_t min = calc_rate(s_tar_min);
-    int32_t max = calc_rate(s_tar_max);
-    int32_t rate = calc_rate(data[s_highlight_hour]);
-    snprintf(s_buffer_info, TEXTBUF_SIZE_INFO, "%ld.%02ld-%ld.%02ld\n%d-%d-%d %d:00", INT_TO_FLOAT2(min), INT_TO_FLOAT2(max), ymd % 100, (ymd/100) % 100, ymd / 10000, s_highlight_hour);
+    snprintf(s_buffer_info, TEXTBUF_SIZE_INFO, "%ld.%02ld-%ld.%02ld\n%d-%d-%d %d:00", INT_TO_FLOAT2(s_tar_min), INT_TO_FLOAT2(s_tar_max), ymd % 100, (ymd/100) % 100, ymd / 10000, s_highlight_hour);
     if ( has_valid_data_for_selection() ) {
-      snprintf(s_buffer_tariff, TEXTBUF_SIZE_TARIFF, "%ld.%02ld", INT_TO_FLOAT2(rate));
+      snprintf(s_buffer_tariff, TEXTBUF_SIZE_TARIFF, "%ld.%02ld", INT_TO_FLOAT2(s_tariff_calculated[s_highlight_hour + (s_display_today ? 0 : TARIFFS_PER_DAY)]));
     } else {
       snprintf(s_buffer_tariff, TEXTBUF_SIZE_TARIFF, "-.-");
     }
@@ -142,12 +126,34 @@ void set_display_today(bool value) {
   redraw();
 }
 
+int32_t calc_rate(int rate) {
+  return multiply1000(rate, s_settings.BTW) + s_settings.InkoopVergoeding + s_settings.EnergieBelasting;
+}
+
+void calculate_data(int32_t* buf, int* calcpos, bool isvalid, bool* isfirst) {
+  for ( int idx=0; idx < TARIFFS_PER_DAY; idx++, (*calcpos)++ ) {
+    if ( isvalid ) {
+      s_tariff_calculated[*calcpos] = calc_rate(buf[idx]);
+      if ( *isfirst ) {
+        s_tar_min = s_tar_max =  s_tariff_calculated[*calcpos];
+        *isfirst = false;
+      } else {
+        s_tar_min = MIN(s_tar_min, s_tariff_calculated[*calcpos]);
+        s_tar_max = MAX(s_tar_max, s_tariff_calculated[*calcpos]);
+      }
+    } else {
+      s_tariff_calculated[*calcpos] = calc_rate(0);
+    }
+  }
+}
+
 void data_updated() {
   // Calculate statistics over both days.
-  s_tar_min = s_in_buf_today != 0 ? s_tariff_today[0] : s_in_buf_tomorrow != 0 ? s_tariff_tomorrow[0] : 0;
-  s_tar_max = s_tar_min;
-  if ( s_in_buf_today    != 0 ) update_mm(s_tariff_today);
-  if ( s_in_buf_tomorrow != 0 ) update_mm(s_tariff_tomorrow);
+  int calcpos = 0;
+  bool isfirst = true;
+  calculate_data(s_tariff_today,    &calcpos, s_in_buf_today    != 0, &isfirst);
+  calculate_data(s_tariff_tomorrow, &calcpos, s_in_buf_tomorrow != 0, &isfirst);
+  if ( isfirst ) { s_tar_min = s_tar_max = 0; }
   s_display_min = s_tar_min > 0 ? 0 : s_tar_min;
   set_display_today(true);
 }
@@ -201,12 +207,13 @@ void update_stroom_received(Tuple* tuple) {
   } else return;
 
   // Process the update
-  if ( count == STROOM_BUF_SIZE ) {
+  if ( count == TARIFFS_PER_DAY ) {
     *target_ymd = date;
     memcpy(targetbuf, &pbuffer[3], sizeof(s_tariff_today));
     if ( date == s_ymd_today ) synchronize_data(); // We can already get tomorrow, if needed.
   } else {
     *target_ymd = 0;
+    memset(targetbuf, 0, sizeof(s_tariff_today));
   }
   persist_write_int(target_in_buf_key, *target_ymd);
   persist_write_data(target_stroom_key, targetbuf, sizeof(s_tariff_today));
@@ -289,19 +296,19 @@ static void inbox_received_handler(DictionaryIterator *iter, void *context) {
   tuple = dict_find(iter, MESSAGE_KEY_EnergieBelasting);
   if(tuple) {
     s_settings.EnergieBelasting = str_to_int100000(tuple->value->cstring);
-    update_text();
+    data_updated();
     s_settings_changed = true;
   }
   tuple = dict_find(iter, MESSAGE_KEY_BTW);
   if(tuple) {
     s_settings.BTW = str_to_int100000(tuple->value->cstring) / 10000 + 1000;
-    update_text();
+    data_updated();
     s_settings_changed = true;
   }
   tuple = dict_find(iter, MESSAGE_KEY_InkoopVergoeding);
   if(tuple) {
     s_settings.InkoopVergoeding = str_to_int100000(tuple->value->cstring);
-    update_text();
+    data_updated();
     s_settings_changed = true;
   }
 }
@@ -344,8 +351,8 @@ static void graph_update_proc(Layer *layer, GContext *ctx) {
 
   const int32_t tar_per_pixel = (s_tar_max - s_display_min) / bounds.size.h;
   GRect rect = GRect(s_graph_offset, 0, s_bar_width - 1, 0);
-  int32_t* data = s_display_today ? s_tariff_today : s_tariff_tomorrow;
-  for ( int hour=0; hour < STROOM_BUF_SIZE; hour++ ) {
+  int32_t* data = s_display_today ? s_tariff_calculated : &s_tariff_calculated[TARIFFS_PER_DAY];
+  for ( int hour=0; hour < TARIFFS_PER_DAY; hour++ ) {
     if ( hour == s_highlight_hour ) {
       graphics_context_set_fill_color(ctx, s_settings.HighlightColor);
     } else if ( !s_display_today || hour >= s_hour_now ) {
@@ -398,8 +405,8 @@ static void prv_window_load(Window *window) {
   layer_add_child(window_layer, text_layer_get_layer(s_tariff_layer));
   s_top_area_height += font_size.h + FILLER_SIZE;
   
-  s_bar_width = bounds.size.w / STROOM_BUF_SIZE;
-  s_graph_offset = (bounds.size.w - s_bar_width * STROOM_BUF_SIZE) / 2; // Center the graph area.
+  s_bar_width = bounds.size.w / TARIFFS_PER_DAY;
+  s_graph_offset = (bounds.size.w - s_bar_width * TARIFFS_PER_DAY) / 2; // Center the graph area.
   s_graph_layer = layer_create(GRect(0, s_top_area_height, bounds.size.w, bounds.size.h - s_top_area_height));
   layer_set_update_proc(s_graph_layer, graph_update_proc);
   layer_add_child(window_layer, s_graph_layer);
