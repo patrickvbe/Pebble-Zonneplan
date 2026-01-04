@@ -1,7 +1,7 @@
 module.exports = [
   {
     "type": "heading",
-    "defaultValue": "Energie Tafief Configuration"
+    "defaultValue": "Energy Tariff Configuration"
   },
   {
     "type": "text",

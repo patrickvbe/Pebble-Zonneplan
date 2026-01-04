@@ -443,7 +443,7 @@ static void prv_window_unload(Window *window) {
 static void prv_init(void) {
   // Get data from storage
   s_settings = (struct Settings){GColorBlack, GColorWhite, PBL_IF_COLOR_ELSE(GColorDarkGreen, GColorDarkGray),
-    PBL_IF_COLOR_ELSE(GColorMediumSpringGreen, GColorDarkGray), PBL_IF_COLOR_ELSE(GColorGreen, GColorWhite), 2000, 11080, 1210};
+    PBL_IF_COLOR_ELSE(GColorMayGreen, GColorDarkGray), PBL_IF_COLOR_ELSE(GColorGreen, GColorWhite), 2000, 11080, 1210};
   persist_read_data(STORAGE_KEY_SETTINGS, &s_settings, sizeof(s_settings));
   if ( persist_exists(STORAGE_KEY_IN_BUF_TODAY) ) {
     s_in_buf_today = persist_read_int(STORAGE_KEY_IN_BUF_TODAY);
