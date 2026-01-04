@@ -11,23 +11,23 @@
 #define FILLER_SIZE 10
 
 static Window *s_window;
-static TextLayer *s_text_layer;
-static TextLayer *s_rate_layer;
+static TextLayer *s_info_layer;
+static TextLayer *s_tariff_layer;
 static Layer *s_graph_layer;
 static bool s_js_ready;
 
 int s_top_area_height = 0;
 int16_t s_bar_width = 0;
 int16_t s_graph_offset = 0;
-#define TEXTBUF_SIZE 30
-static char s_textbuffer[TEXTBUF_SIZE];
-#define RATE_BUF_SIZE 10
-static char s_rate_buffer[RATE_BUF_SIZE];
+#define TEXTBUF_SIZE_INFO 30
+static char s_buffer_info[TEXTBUF_SIZE_INFO];
+#define TEXTBUF_SIZE_TARIFF 10
+static char s_buffer_tariff[TEXTBUF_SIZE_TARIFF];
 
 // We get two days of data in the buffer.
 #define STROOM_BUF_SIZE 24
-int32_t s_stroom_today[STROOM_BUF_SIZE];
-int32_t s_stroom_tomorrow[STROOM_BUF_SIZE];
+int32_t s_tariff_today[STROOM_BUF_SIZE];
+int32_t s_tariff_tomorrow[STROOM_BUF_SIZE];
 int s_in_buf_today=0, s_in_buf_tomorrow=0;
 int32_t s_tar_min=0, s_tar_max=0, s_display_min=0;
 bool s_display_today = true; // false = tomorrow.
@@ -35,8 +35,8 @@ bool s_display_today = true; // false = tomorrow.
 // Persistency of data, so we don't have to communicate each time we start the app.
 #define STORAGE_KEY_IN_BUF_TODAY      0
 #define STORAGE_KEY_IN_BUF_TOMORROW   1
-#define STORAGE_KEY_STROOM_TODAY      2
-#define STORAGE_KEY_STROOM_TOMORROW   3
+#define STORAGE_KEY_TARIFF_TODAY      2
+#define STORAGE_KEY_TARIFF_TOMORROW   3
 #define STORAGE_KEY_SETTINGS          4
 
 // Define our settings struct
@@ -74,7 +74,7 @@ static void update_time() {
   s_ymd_tomorrow = tm_to_int(t);
 }
 
-void request_stroom(int date) {
+void request_tariffs(int date) {
   DictionaryIterator *out_iter;
   AppMessageResult result = app_message_outbox_begin(&out_iter);
   if(result == APP_MSG_OK) {
@@ -110,22 +110,22 @@ int32_t calc_rate(int rate) {
 
 void update_text() {
   if ( s_in_buf_today == 0 && s_in_buf_tomorrow == 0 ) {
-    snprintf(s_textbuffer, TEXTBUF_SIZE, "Geen gegevens");
+    snprintf(s_buffer_info, TEXTBUF_SIZE_INFO, "Geen gegevens");
   } else {
-    int32_t* data = s_display_today ? s_stroom_today : s_stroom_tomorrow;
+    int32_t* data = s_display_today ? s_tariff_today : s_tariff_tomorrow;
     int ymd = s_display_today ? s_ymd_today : s_ymd_tomorrow;
     int32_t min = calc_rate(s_tar_min);
     int32_t max = calc_rate(s_tar_max);
     int32_t rate = calc_rate(data[s_highlight_hour]);
-    snprintf(s_textbuffer, TEXTBUF_SIZE, "%ld.%02ld-%ld.%02ld\n%d-%d-%d %d:00", INT_TO_FLOAT2(min), INT_TO_FLOAT2(max), ymd % 100, (ymd/100) % 100, ymd / 10000, s_highlight_hour);
+    snprintf(s_buffer_info, TEXTBUF_SIZE_INFO, "%ld.%02ld-%ld.%02ld\n%d-%d-%d %d:00", INT_TO_FLOAT2(min), INT_TO_FLOAT2(max), ymd % 100, (ymd/100) % 100, ymd / 10000, s_highlight_hour);
     if ( has_valid_data_for_selection() ) {
-      snprintf(s_rate_buffer, RATE_BUF_SIZE, "%ld.%02ld", INT_TO_FLOAT2(rate));
+      snprintf(s_buffer_tariff, TEXTBUF_SIZE_TARIFF, "%ld.%02ld", INT_TO_FLOAT2(rate));
     } else {
-      snprintf(s_rate_buffer, RATE_BUF_SIZE, "-.-");
+      snprintf(s_buffer_tariff, TEXTBUF_SIZE_TARIFF, "-.-");
     }
   }
-  text_layer_set_text(s_text_layer, s_textbuffer);
-  text_layer_set_text(s_rate_layer, s_rate_buffer);
+  text_layer_set_text(s_info_layer, s_buffer_info);
+  text_layer_set_text(s_tariff_layer, s_buffer_tariff);
 }
 
 void redraw() {
@@ -144,10 +144,10 @@ void set_display_today(bool value) {
 
 void data_updated() {
   // Calculate statistics over both days.
-  s_tar_min = s_in_buf_today != 0 ? s_stroom_today[0] : s_in_buf_tomorrow != 0 ? s_stroom_tomorrow[0] : 0;
+  s_tar_min = s_in_buf_today != 0 ? s_tariff_today[0] : s_in_buf_tomorrow != 0 ? s_tariff_tomorrow[0] : 0;
   s_tar_max = s_tar_min;
-  if ( s_in_buf_today    != 0 ) update_mm(s_stroom_today);
-  if ( s_in_buf_tomorrow != 0 ) update_mm(s_stroom_tomorrow);
+  if ( s_in_buf_today    != 0 ) update_mm(s_tariff_today);
+  if ( s_in_buf_tomorrow != 0 ) update_mm(s_tariff_tomorrow);
   s_display_min = s_tar_min > 0 ? 0 : s_tar_min;
   set_display_today(true);
 }
@@ -160,16 +160,16 @@ void synchronize_data() {
   {
     s_in_buf_today = s_in_buf_tomorrow;
     s_in_buf_tomorrow = 0;
-    memcpy(s_stroom_today, s_stroom_tomorrow, sizeof(s_stroom_today));
+    memcpy(s_tariff_today, s_tariff_tomorrow, sizeof(s_tariff_today));
     persist_write_int(STORAGE_KEY_IN_BUF_TOMORROW, s_in_buf_tomorrow);
     persist_write_int(STORAGE_KEY_IN_BUF_TODAY, s_in_buf_today);
-    persist_write_data(STORAGE_KEY_STROOM_TODAY, s_stroom_today, sizeof(s_stroom_today));
+    persist_write_data(STORAGE_KEY_TARIFF_TODAY, s_tariff_today, sizeof(s_tariff_today));
     data_updated();
   }
   if ( s_in_buf_today != s_ymd_today ) {
-    request_stroom(s_ymd_today);
+    request_tariffs(s_ymd_today);
   } else if ( s_in_buf_tomorrow != s_ymd_tomorrow ) {
-    request_stroom(s_ymd_tomorrow);
+    request_tariffs(s_ymd_tomorrow);
   }
 
   // ToDo: Add timer to fire e.g. every minute (and increase interval) when today not in sync or after 13:00 and tomorrow not in sync.
@@ -177,12 +177,12 @@ void synchronize_data() {
 }
 
 void update_stroom_received(Tuple* tuple) {
-  APP_LOG(APP_LOG_LEVEL_DEBUG, "Stroom received");
+  APP_LOG(APP_LOG_LEVEL_DEBUG, "Tariffs received");
   int32_t* pbuffer = (int32_t*)tuple->value->data;
   int date = (int)pbuffer[0];
   //int32_t belasting = pbuffer[1];
   int count = (int)pbuffer[2];
-  APP_LOG(APP_LOG_LEVEL_DEBUG, "Received data for %d, %d items.", date, count);
+  APP_LOG(APP_LOG_LEVEL_DEBUG, "Received tariffs for %d, %d items.", date, count);
   
   // See which day / part of the buffer got the update
   int32_t* targetbuf = NULL;
@@ -190,26 +190,26 @@ void update_stroom_received(Tuple* tuple) {
   uint32_t target_in_buf_key = 0, target_stroom_key = 0;
   if ( date == s_ymd_today ) {
     target_ymd = &s_in_buf_today;
-    targetbuf = s_stroom_today;
+    targetbuf = s_tariff_today;
     target_in_buf_key = STORAGE_KEY_IN_BUF_TODAY;
-    target_stroom_key = STORAGE_KEY_STROOM_TODAY;
+    target_stroom_key = STORAGE_KEY_TARIFF_TODAY;
   } else if ( date == s_ymd_tomorrow ) {
     target_ymd = &s_in_buf_tomorrow;
-    targetbuf = s_stroom_tomorrow;
+    targetbuf = s_tariff_tomorrow;
     target_in_buf_key = STORAGE_KEY_IN_BUF_TOMORROW;
-    target_stroom_key = STORAGE_KEY_STROOM_TOMORROW;
+    target_stroom_key = STORAGE_KEY_TARIFF_TOMORROW;
   } else return;
 
   // Process the update
   if ( count == STROOM_BUF_SIZE ) {
     *target_ymd = date;
-    memcpy(targetbuf, &pbuffer[3], sizeof(s_stroom_today));
+    memcpy(targetbuf, &pbuffer[3], sizeof(s_tariff_today));
     if ( date == s_ymd_today ) synchronize_data(); // We can already get tomorrow, if needed.
   } else {
     *target_ymd = 0;
   }
   persist_write_int(target_in_buf_key, *target_ymd);
-  persist_write_data(target_stroom_key, targetbuf, sizeof(s_stroom_today));
+  persist_write_data(target_stroom_key, targetbuf, sizeof(s_tariff_today));
 
   data_updated();
 }
@@ -257,15 +257,15 @@ static void inbox_received_handler(DictionaryIterator *iter, void *context) {
   if(tuple) {
     s_settings.BackgroundColor = GColorFromHEX(tuple->value->int32);
     layer_mark_dirty(s_graph_layer);
-    text_layer_set_background_color(s_text_layer, s_settings.BackgroundColor);
-    text_layer_set_background_color(s_rate_layer, s_settings.BackgroundColor);
+    text_layer_set_background_color(s_info_layer, s_settings.BackgroundColor);
+    text_layer_set_background_color(s_tariff_layer, s_settings.BackgroundColor);
     s_settings_changed = true;
   }
   tuple = dict_find(iter, MESSAGE_KEY_TextColor);
   if(tuple) {
     s_settings.TextColor = GColorFromHEX(tuple->value->int32);
-    text_layer_set_text_color(s_text_layer, s_settings.TextColor);
-    text_layer_set_text_color(s_rate_layer, s_settings.TextColor);
+    text_layer_set_text_color(s_info_layer, s_settings.TextColor);
+    text_layer_set_text_color(s_tariff_layer, s_settings.TextColor);
     s_settings_changed = true;
   }
   tuple = dict_find(iter, MESSAGE_KEY_ForegroundColorPast);
@@ -337,7 +337,6 @@ static void prv_down_click_handler(ClickRecognizerRef recognizer, void *context)
 }
 
 static void graph_update_proc(Layer *layer, GContext *ctx) {
-  APP_LOG(APP_LOG_LEVEL_DEBUG, "graph_update_proc");
   GRect bounds = layer_get_bounds(layer);
   graphics_context_set_fill_color(ctx, s_settings.BackgroundColor);
   graphics_fill_rect(ctx, bounds, 0, GCornerNone);
@@ -345,7 +344,7 @@ static void graph_update_proc(Layer *layer, GContext *ctx) {
 
   const int32_t tar_per_pixel = (s_tar_max - s_display_min) / bounds.size.h;
   GRect rect = GRect(s_graph_offset, 0, s_bar_width - 1, 0);
-  int32_t* data = s_display_today ? s_stroom_today : s_stroom_tomorrow;
+  int32_t* data = s_display_today ? s_tariff_today : s_tariff_tomorrow;
   for ( int hour=0; hour < STROOM_BUF_SIZE; hour++ ) {
     if ( hour == s_highlight_hour ) {
       graphics_context_set_fill_color(ctx, s_settings.HighlightColor);
@@ -380,23 +379,23 @@ static void prv_window_load(Window *window) {
   GSize font_size = graphics_text_layout_get_content_size("1", font, bounds, GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft);
   s_top_area_height = font_size.h * 2;
 
-  s_text_layer = text_layer_create(GRect(0, 0, bounds.size.w, s_top_area_height));
-  text_layer_set_font(s_text_layer, font);
-  text_layer_set_background_color(s_text_layer, s_settings.BackgroundColor);
-  text_layer_set_text_color(s_text_layer, s_settings.TextColor);
-  text_layer_set_text_alignment(s_text_layer, GTextAlignmentCenter);
-  layer_add_child(window_layer, text_layer_get_layer(s_text_layer));
+  s_info_layer = text_layer_create(GRect(0, 0, bounds.size.w, s_top_area_height));
+  text_layer_set_font(s_info_layer, font);
+  text_layer_set_background_color(s_info_layer, s_settings.BackgroundColor);
+  text_layer_set_text_color(s_info_layer, s_settings.TextColor);
+  text_layer_set_text_alignment(s_info_layer, GTextAlignmentCenter);
+  layer_add_child(window_layer, text_layer_get_layer(s_info_layer));
   
   font = fonts_get_system_font(FONT_KEY_LECO_42_NUMBERS);
   font_size = graphics_text_layout_get_content_size("1", font, bounds, GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft);
   
-  s_rate_layer = text_layer_create(GRect(0, s_top_area_height, bounds.size.w, font_size.h + FILLER_SIZE));
-  text_layer_set_font(s_rate_layer, font);
-  text_layer_set_background_color(s_rate_layer, s_settings.BackgroundColor);
-  text_layer_set_text_color(s_rate_layer, s_settings.TextColor);
-  text_layer_set_text(s_rate_layer, "-.-");
-  text_layer_set_text_alignment(s_rate_layer, GTextAlignmentCenter);
-  layer_add_child(window_layer, text_layer_get_layer(s_rate_layer));
+  s_tariff_layer = text_layer_create(GRect(0, s_top_area_height, bounds.size.w, font_size.h + FILLER_SIZE));
+  text_layer_set_font(s_tariff_layer, font);
+  text_layer_set_background_color(s_tariff_layer, s_settings.BackgroundColor);
+  text_layer_set_text_color(s_tariff_layer, s_settings.TextColor);
+  text_layer_set_text(s_tariff_layer, "-.-");
+  text_layer_set_text_alignment(s_tariff_layer, GTextAlignmentCenter);
+  layer_add_child(window_layer, text_layer_get_layer(s_tariff_layer));
   s_top_area_height += font_size.h + FILLER_SIZE;
   
   s_bar_width = bounds.size.w / STROOM_BUF_SIZE;
@@ -412,8 +411,8 @@ static void prv_window_load(Window *window) {
 }
 
 static void prv_window_unload(Window *window) {
-  text_layer_destroy(s_text_layer);
-  text_layer_destroy(s_rate_layer);
+  text_layer_destroy(s_info_layer);
+  text_layer_destroy(s_tariff_layer);
   layer_destroy(s_graph_layer);
 }
 
@@ -423,13 +422,11 @@ static void prv_init(void) {
   persist_read_data(STORAGE_KEY_SETTINGS, &s_settings, sizeof(s_settings));
   if ( persist_exists(STORAGE_KEY_IN_BUF_TODAY) ) {
     s_in_buf_today = persist_read_int(STORAGE_KEY_IN_BUF_TODAY);
-    persist_read_data(STORAGE_KEY_STROOM_TODAY, s_stroom_today, sizeof(s_stroom_today));
-    APP_LOG(APP_LOG_LEVEL_DEBUG, "Read today: %d", s_in_buf_today);
+    persist_read_data(STORAGE_KEY_TARIFF_TODAY, s_tariff_today, sizeof(s_tariff_today));
   }
   if ( persist_exists(STORAGE_KEY_IN_BUF_TOMORROW) ) {
     s_in_buf_tomorrow = persist_read_int(STORAGE_KEY_IN_BUF_TOMORROW);
-    persist_read_data(STORAGE_KEY_STROOM_TOMORROW, s_stroom_tomorrow, sizeof(s_stroom_tomorrow));
-    APP_LOG(APP_LOG_LEVEL_DEBUG, "Read tomorrow: %d", s_in_buf_tomorrow);
+    persist_read_data(STORAGE_KEY_TARIFF_TOMORROW, s_tariff_tomorrow, sizeof(s_tariff_tomorrow));
   }
 
   s_window = window_create();
@@ -450,16 +447,12 @@ static void prv_deinit(void) {
 
   // Store settings before we exit.
   if ( s_settings_changed ) {
-    APP_LOG(APP_LOG_LEVEL_DEBUG, "Writing settings");
     persist_write_data(STORAGE_KEY_SETTINGS, &s_settings, sizeof(s_settings));
   }
 }
 
 int main(void) {
   prv_init();
-
-  APP_LOG(APP_LOG_LEVEL_DEBUG, "Done initializing, pushed window: %p", s_window);
-
   app_event_loop();
   prv_deinit();
 }

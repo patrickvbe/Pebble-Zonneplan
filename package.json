@@ -1,9 +1,9 @@
 {
-  "name": "zonneplan",
+  "name": "energytariffs",
   "author": "Patrick van Beem",
   "version": "1.0.0",
   "keywords": [
-    "zonneplan",
+    "energytariffs",
     "energy"
   ],
   "private": true,
@@ -12,7 +12,7 @@
   },
   "capabilities": [ "configurable" ],
   "pebble": {
-    "displayName": "zonneplan",
+    "displayName": "Energy Tariffs",
     "uuid": "4d0c8b12-a273-4226-aed8-2575b17f943f",
     "sdkVersion": "3",
     "enableMultiJS": true,
