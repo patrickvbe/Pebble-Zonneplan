@@ -1,7 +1,7 @@
 {
   "name": "energytariffs",
-  "author": "Patrick van Beem",
-  "version": "1.0.0",
+  "author": "Patrick van Beem <patrick@vanbeem.info>",
+  "version": "0.8.0",
   "keywords": [
     "energytariffs",
     "energy"
@@ -40,7 +40,14 @@
       "InkoopVergoeding"
     ],
     "resources": {
-      "media": []
+      "media": [
+        {
+          "menuIcon": true,
+          "type": "png",
+          "name": "APP_ICON",
+          "file": "app_icon.png"
+        }
+      ]
     }
   }
 }

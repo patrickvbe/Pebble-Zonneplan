@@ -1,5 +1,5 @@
 // Show energy tariffs on the Pebble watch.
-// Copyright (C) 2026 Patrick van Beem
+// Copyright (C) 2026 Patrick van Beem (patrick@vanbeem.info)
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -17,7 +17,6 @@
 
 #include <pebble.h>
 
-#include <string.h>
 #include <ctype.h>
 
 #define MAX(x, y) (((x) > (y)) ? (x) : (y))
